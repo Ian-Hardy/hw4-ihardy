@@ -157,7 +157,7 @@ comp_dict = {
 	'EE' : '=',
 	'LT' : '<',
 	'GT' : '>',
-	'PlUS' : '+',
+	'PLUS' : '+',
 	'MINUS' : '-',
 	'MUL' : '*',
 	'DIV' : '/',
@@ -393,8 +393,8 @@ class BinOpNode:
 
 	def __repr__(self):
 		if self.op_tok.type in ['KEYWORD']:
-			return f'{self.left_node} {self.op_tok.value} {self.right_node}'
-		return f'{self.left_node} {comp_dict[self.op_tok.type]} {self.right_node}'
+			return f'({self.left_node}{self.op_tok.value}{self.right_node})'
+		return f'({self.left_node}{comp_dict[self.op_tok.type]}{self.right_node})'
 
 class UnaryOpNode:
 	def __init__(self, op_tok, node):
@@ -405,7 +405,10 @@ class UnaryOpNode:
 		self.pos_end = node.pos_end
 
 	def __repr__(self):
-		return f'({self.op_tok}, {self.node})'
+		if self.op_tok.type in ['KEYWORD']:
+			return f'{self.op_tok.value}{self.node}'
+		return f'{comp_dict[self.op_tok.type]}{self.node}'
+
 
 class SkipNode:
 	def __init__(self, tok):
@@ -423,7 +426,7 @@ class IfNode:
 		self.pos_start = self.cases[0][0].pos_start
 		self.pos_end = (self.else_case or self.cases[len(self.cases) - 1][0]).pos_end
 	def __repr__(self):
-		return f'if {self.cases[0][0]} then {self.cases[0][1]} else {self.else_case}'
+		return f'if {self.cases[0][0]} then {{ {self.cases[0][1]} }} else {{ {self.else_case} }}'
 
 class WhileNode:
 	def __init__(self, condition_node, body_node):
@@ -433,7 +436,7 @@ class WhileNode:
 		self.pos_start = self.condition_node.pos_start
 		self.pos_end = self.body_node.pos_end
 	def __repr__(self):
-		return f'while {self.condition_node} do {self.body_node}'
+		return f'while {self.condition_node} do {{ {self.body_node} }}'
 
 class BracCompoundNode:
 	"""Represents a block of statements"""
@@ -442,12 +445,12 @@ class BracCompoundNode:
 		self.pos_start = start_pos
 		self.pos_end = end_pos
 	def __repr__(self):
-		string = '{'
+		string = ''
 		for i, child in enumerate(self.children):
 			string += f'{child}'
-			if i < len(children)-1:
+			if i < len(self.children)-1:
 				string += '; '
-		string += '}'
+		string += ''
 		return string
 
 class ListNode:
@@ -1086,16 +1089,16 @@ class Interpreter:
 		value = value.copy().set_pos(node.pos_start, node.pos_end)
 		return res.success(value)
 
-	def visit_VarAssignNode(self, node, context):
+	def visit_VarAssignNode(self, node, context, from_inside=False):
 		res = RTResult()
 		var_name = node.var_name_tok.value
-		self.result.append(f'⇒ {node}, {context}')
 		if var_name not in list(context.symbol_table.symbols.keys()):
 			context.symbol_table.set(var_name, Number(0))
 		value = res.register(self.visit(node.value_node, context))
 		if res.error: return res
 		
 		context.symbol_table.set(var_name, value)
+		self.result.append(f'⇒ skip, {context}')
 		return res.success(value)
 
 	def visit_BinOpNode(self, node, context):
@@ -1162,36 +1165,72 @@ class Interpreter:
 			if res.error: return res
 
 			if condition_value.is_true():
+				self.result.append(f'⇒ {expr}, {context}')
 				expr_value = res.register(self.visit(expr, context))
+				#self.result.append(f'⇒ skip, {context}')
 				if res.error: return res
-				self.result.append(f'⇒ skip; {context}')
 				return res.success(expr_value)
 
 		if node.else_case:
+			self.result.append(f'⇒ {node.else_case}, {context}')
 			else_value = res.register(self.visit(node.else_case, context))
 			if res.error: return res
-			self.result.append(f'⇒ skip; {context}')
+			#self.result.append(f'⇒ skip, {context}')
 			return res.success(else_value)
 
 		return res.success(None)
 
 	def visit_WhileNode(self, node, context):
 		res = RTResult()
+		i = 0
 		while True:
+			i += 1
+			if i > 10000:
+				break
 			condition = res.register(self.visit(node.condition_node, context))
 			if res.error: return res
-			#self.result.append(f'⇒ skip; {node}, {context}')
-			if not condition.is_true(): break
+			if not condition.is_true(): 
+				self.result.append(f'⇒ skip, {context}')
+				break
+			self.result.append(f'⇒ {node.body_node}; {node}, {context}')
 
 			res.register(self.visit(node.body_node, context))
+			self.result.pop()
+			self.result.append(f'⇒ skip; {node}, {context}')
+			#self.result.append(f'⇒ {node}, {context}')
 			if res.error: return res
 
 		return res.success(None)
 
 	def visit_BracCompoundNode(self, node, context):
 		res = RTResult()
-		for child in node.children:
+		for i, child in enumerate(node.children):
+			# results_ind = len(self.result) - 1
+			# print(results_ind)
 			res.register(self.visit(child, context))
+			results_ind = len(self.result) - 1
+			# print(child)
+			# print(i)
+			# print(len(node.children))
+			# print(self.result)
+			if i<len(node.children):
+				insertion_str = ''
+				for k in range(i+1, len(node.children)):
+					insertion_str += f'; {node.children[k]}'
+				## For each node left in child List, add to insertion string
+				# for j in range(results_ind, len(self.result)-1):
+				# 	ind_of_insertion=self.result[j].index(',')
+				# 	pre = self.result[j][:ind_of_insertion]
+				# 	post = self.result[j][ind_of_insertion:]
+				# 	self.result[j] = pre + insertion_str + post
+				ind_of_insertion=self.result[results_ind].index(',')
+				pre = self.result[results_ind][:ind_of_insertion]
+				post = self.result[results_ind][ind_of_insertion:]
+				self.result[results_ind] = pre + insertion_str + post
+			else:
+				print('bing')
+				
+				#self.result.append(f'⇒ skip; {child}, {context}')
 			if res.error: return res
 		return res.success(None)
 
@@ -1218,38 +1257,67 @@ def run(fn, text):
 	# Generate AST
 	parser = Parser(tokens)
 	ast_list = parser.parse()
+	#print(ast_list)
 	# Run program
 	interpreter = Interpreter()
 	context = Context('<program>')
 	context.symbol_table = global_symbol_table
-	for ast in ast_list:
+	results_ind = -1
+	print(ast_list)
+	for i, ast in enumerate(ast_list):
 		if type(ast) is list:
 			for a in ast:
 				interpreter.visit(ast.node, context)
 		else:
-			#print(ast.node)
 			interpreter.visit(ast.node, context)
+			## If nodes left in AST List
+			if i<len(ast_list)-1:
+				insertion_str = ''
+				for k in range(i+1, len(ast_list)):
+					insertion_str += f'; {ast_list[k].node}'
+				#print(insertion_str)
+				## For each node left in AST List, add to insertion string
+				for j in range(results_ind, len(interpreter.result)-1):
+					ind_of_insertion=interpreter.result[j].index(',')
+					pre = interpreter.result[j][:ind_of_insertion]
+					post = interpreter.result[j][ind_of_insertion:]
+					interpreter.result[j] = pre + insertion_str + post
+					results_ind = len(interpreter.result)-1
 
-	keys = list(context.symbol_table.symbols.keys())
-	keys.sort()
-	out_str = '{'
-	for i, val in enumerate(keys):
-		if i>0:
-			out_str += ', '
-		if isinstance(context.symbol_table.symbols[val], List):
-			list_str = '['
-			for j, element in enumerate(context.symbol_table.symbols[val].elements):
-				if j>0:
-					list_str += ', '
-				list_str += str(element)
-			list_str += ']'
-			out_str += str(val)+' → ' + list_str
+	# keys = list(context.symbol_table.symbols.keys())
+	# keys.sort()
+	# out_str = '{'
+	# for i, val in enumerate(keys):
+	# 	if i>0:
+	# 		out_str += ', '
+	# 	if isinstance(context.symbol_table.symbols[val], List):
+	# 		list_str = '['
+	# 		for j, element in enumerate(context.symbol_table.symbols[val].elements):
+	# 			if j>0:
+	# 				list_str += ', '
+	# 			list_str += str(element)
+	# 		list_str += ']'
+	# 		out_str += str(val)+' → ' + list_str
+	# 	else:
+	# 		out_str += str(val)+' → '+str(context.symbol_table.symbols[val])
+	#print(interpreter.result)
+	final_str = ''
+	j = 1
+	for i, res in enumerate(interpreter.result):
+		if i < len(interpreter.result)-1:
+			final_str += res+'\n'
+			j += 1
+			if res.startswith('⇒ skip; '):
+				final_str += '⇒ '+res.split('⇒ skip; ')[1]+'\n'
+				j += 1
 		else:
-			out_str += str(val)+' → '+str(context.symbol_table.symbols[val])
-	print(interpreter.result)
+			final_str += res
+			j += 1
+		if j > 10000:
+			break
 	#print(context.symbol_table.symbols)
-	out_str += '}'
-	#print(out_str)
+	#out_str += '}'
+	print(final_str)
 
 def main():
 	while True:
