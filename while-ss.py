@@ -1194,10 +1194,13 @@ class Interpreter:
 				break
 			self.result.append(f'⇒ {node.body_node}; {node}, {context}')
 
+			curr_num = len(self.result)
 			res.register(self.visit(node.body_node, context))
-			self.result.pop()
-			self.result.append(f'⇒ skip; {node}, {context}')
-			#self.result.append(f'⇒ {node}, {context}')
+			for k in range(curr_num, len(self.result)):
+				ind_of_insertion=self.result[k].index(',')
+				pre = self.result[k][:ind_of_insertion]
+				post = self.result[k][ind_of_insertion:]
+				self.result[k] = pre + f'; {node}' + post
 			if res.error: return res
 
 		return res.success(None)
@@ -1205,30 +1208,16 @@ class Interpreter:
 	def visit_BracCompoundNode(self, node, context):
 		res = RTResult()
 		for i, child in enumerate(node.children):
-			# results_ind = len(self.result) - 1
-			# print(results_ind)
+			results_ind = len(self.result)
 			res.register(self.visit(child, context))
-			results_ind = len(self.result) - 1
-			# print(child)
-			# print(i)
-			# print(len(node.children))
-			# print(self.result)
-			if i<len(node.children):
-				insertion_str = ''
-				for k in range(i+1, len(node.children)):
-					insertion_str += f'; {node.children[k]}'
-				## For each node left in child List, add to insertion string
-				# for j in range(results_ind, len(self.result)-1):
-				# 	ind_of_insertion=self.result[j].index(',')
-				# 	pre = self.result[j][:ind_of_insertion]
-				# 	post = self.result[j][ind_of_insertion:]
-				# 	self.result[j] = pre + insertion_str + post
-				ind_of_insertion=self.result[results_ind].index(',')
-				pre = self.result[results_ind][:ind_of_insertion]
-				post = self.result[results_ind][ind_of_insertion:]
-				self.result[results_ind] = pre + insertion_str + post
-			else:
-				print('bing')
+			insertion_str = ''
+			for k in range(i+1, len(node.children)):
+				insertion_str += f'; {node.children[k]}'
+			## For each node left in child List, add to insertion string
+			ind_of_insertion=self.result[results_ind].index(',')
+			pre = self.result[results_ind][:ind_of_insertion]
+			post = self.result[results_ind][ind_of_insertion:]
+			self.result[results_ind] = pre + insertion_str + post
 				
 				#self.result.append(f'⇒ skip; {child}, {context}')
 			if res.error: return res
@@ -1262,27 +1251,28 @@ def run(fn, text):
 	interpreter = Interpreter()
 	context = Context('<program>')
 	context.symbol_table = global_symbol_table
-	results_ind = -1
-	print(ast_list)
+	results_ind = 0
+
 	for i, ast in enumerate(ast_list):
 		if type(ast) is list:
 			for a in ast:
 				interpreter.visit(ast.node, context)
 		else:
+			# This adds (some) number to the number of elements in the result list
 			interpreter.visit(ast.node, context)
-			## If nodes left in AST List
-			if i<len(ast_list)-1:
-				insertion_str = ''
-				for k in range(i+1, len(ast_list)):
-					insertion_str += f'; {ast_list[k].node}'
-				#print(insertion_str)
-				## For each node left in AST List, add to insertion string
-				for j in range(results_ind, len(interpreter.result)-1):
-					ind_of_insertion=interpreter.result[j].index(',')
-					pre = interpreter.result[j][:ind_of_insertion]
-					post = interpreter.result[j][ind_of_insertion:]
-					interpreter.result[j] = pre + insertion_str + post
-					results_ind = len(interpreter.result)-1
+			# This enumerates the nodes left in the ast list to add
+			insertion_str = ''
+			for k in range(i+1, len(ast_list)):
+				insertion_str += f'; {ast_list[k].node}'
+			# Ok so here, we go from current_result_position(inclusive):end of result list,
+			# each time updating the result string with the remaining statements we have
+			for j in range(results_ind, len(interpreter.result)):
+				ind_of_insertion=interpreter.result[j].index(',')
+				pre = interpreter.result[j][:ind_of_insertion]
+				post = interpreter.result[j][ind_of_insertion:]
+				interpreter.result[j] = pre + insertion_str + post
+				# this will be the first index of the next set of results
+				results_ind = len(interpreter.result)
 
 	# keys = list(context.symbol_table.symbols.keys())
 	# keys.sort()
